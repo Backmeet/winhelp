@@ -7,43 +7,45 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <chrono>
+#include <thread>
 
 namespace winhelp {
     LRESULT CALLBACK wndproc(HWND handle, UINT message, WPARAM wparam, LPARAM lparam);
 
     struct vec2 {
-        int x;
-        int y;
+        float x;
+        float y;
         vec2() : x(0), y(0) {}
-        vec2(int X, int Y) : x(X), y(Y) {}
+        vec2(float X, float Y) : x(X), y(Y) {}
         vec2 operator+(const vec2& other) const { return { x + other.x, y + other.y }; }
         vec2 operator-(const vec2& other) const { return { x - other.x, y - other.y }; }
-        vec2 operator*(int scalar) const { return { x * scalar, y * scalar }; }
-        vec2 operator/(int scalar) const { return { x / scalar, y / scalar }; }
+        vec2 operator*(float scalar) const { return { x * scalar, y * scalar }; }
+        vec2 operator/(float scalar) const { return { x / scalar, y / scalar }; }
         vec2& operator+=(const vec2& other) { x += other.x; y += other.y; return *this; }
         vec2& operator-=(const vec2& other) { x -= other.x; y -= other.y; return *this; }
-        vec2& operator*=(int scalar) { x *= scalar; y *= scalar; return *this; }
-        vec2& operator/=(int scalar) { x /= scalar; y /= scalar; return *this; }
-        int& operator[](int index) { return index ? y : x; }
-        const int& operator[](int index) const { return index ? y : x; }
+        vec2& operator*=(float scalar) { x *= scalar; y *= scalar; return *this; }
+        vec2& operator/=(float scalar) { x /= scalar; y /= scalar; return *this; }
+        float& operator[](int index) { return index ? y : x; }
+        const float& operator[](int index) const { return index ? y : x; }
     };
 
     struct vec3 {
-        int x;
-        int y;
-        int z;
+        float x;
+        float y;
+        float z;
         vec3() : x(0), y(0), z(0) {}
-        vec3(int X, int Y, int Z) : x(X), y(Y), z(Z) {}
+        vec3(float X, float Y, float Z) : x(X), y(Y), z(Z) {}
         vec3 operator+(const vec3& other) const { return { x + other.x, y + other.y, z + other.z }; }
         vec3 operator-(const vec3& other) const { return { x - other.x, y - other.y, z - other.z }; }
-        vec3 operator*(int scalar) const { return { x * scalar, y * scalar, z * scalar }; }
-        vec3 operator/(int scalar) const { return { x / scalar, y / scalar, z / scalar }; }
+        vec3 operator*(float scalar) const { return { x * scalar, y * scalar, z * scalar }; }
+        vec3 operator/(float scalar) const { return { x / scalar, y / scalar, z / scalar }; }
         vec3& operator+=(const vec3& other) { x += other.x; y += other.y; z += other.z; return *this; }
         vec3& operator-=(const vec3& other) { x -= other.x; y -= other.y; z -= other.z; return *this; }
-        vec3& operator*=(int scalar) { x *= scalar; y *= scalar; z *= scalar; return *this; }
-        vec3& operator/=(int scalar) { x /= scalar; y /= scalar; z /= scalar; return *this; }
-        int& operator[](int index) { return index == 0 ? x : (index == 1 ? y : z); }
-        const int& operator[](int index) const { return index == 0 ? x : (index == 1 ? y : z); }
+        vec3& operator*=(float scalar) { x *= scalar; y *= scalar; z *= scalar; return *this; }
+        vec3& operator/=(float scalar) { x /= scalar; y /= scalar; z /= scalar; return *this; }
+        float& operator[](int index) { return index == 0 ? x : (index == 1 ? y : z); }
+        const float& operator[](int index) const { return index == 0 ? x : (index == 1 ? y : z); }
     };
 
     inline vec2& internal_mouse() {
@@ -195,8 +197,8 @@ namespace winhelp {
             int minimumY = lineSegments[0][0].y;
             int maximumY = lineSegments[0][0].y;
             for (const auto& segment : lineSegments) {
-                minimumY = std::min(minimumY, std::min(segment[0].y, segment[1].y));
-                maximumY = std::max(maximumY, std::max(segment[0].y, segment[1].y));
+                minimumY = std::min(minimumY, (const int)std::min(segment[0].y, segment[1].y));
+                maximumY = std::max(maximumY, (const int)std::max(segment[0].y, segment[1].y));
             }
             uint32_t colourValue = 0xFF000000 | (uint32_t(colour.x) << 16) | (uint32_t(colour.y) << 8) | uint32_t(colour.z);
             for (int y = minimumY; y <= maximumY; y++) {
@@ -276,4 +278,60 @@ namespace winhelp {
         }
         return DefWindowProcW(handle, message, wparam, lparam);
     }
+
+    inline float fps = 0;
+
+    namespace internal_timing {
+        using clock = std::chrono::steady_clock;
+
+        inline clock::time_point& last_frame() {
+            static clock::time_point t = clock::now();
+            return t;
+        }
+
+        inline clock::time_point& last_fps_tick() {
+            static clock::time_point t = last_frame();
+            return t;
+        }
+
+        inline unsigned int& frame_counter() {
+            static unsigned int c = 0;
+            return c;
+        }
+    }
+
+    inline void tick() {
+        using namespace internal_timing;
+
+        const auto now = clock::now();
+        frame_counter()++;
+
+        const auto elapsed = now - last_fps_tick();
+        if (elapsed >= std::chrono::seconds(1)) {
+            fps = frame_counter();
+            frame_counter() = 0;
+            last_fps_tick() = now;
+        }
+
+        last_frame() = now;
+    }
+
+    inline void tick(int target) {
+        using namespace internal_timing;
+
+        if (target <= 0) {
+            tick();
+            return;
+        }
+
+        const auto frame_duration =
+            std::chrono::duration<double>(1.0 / double(target));
+
+        const auto next_frame_time = last_frame() + frame_duration;
+
+        std::this_thread::sleep_until(next_frame_time);
+
+        tick();
+    }
+
 }
