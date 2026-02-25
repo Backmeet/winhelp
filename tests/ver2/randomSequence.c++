@@ -6,7 +6,7 @@ using namespace winhelp;
 
 constexpr int width = 900;
 constexpr int height = 600;
-constexpr int startingHeight = static_cast<int>(height * ((100.0f - 36.0f) / 100.0f));
+constexpr int startingHeight = static_cast<int>(height * ((100.0f - 36.0f) / 100.0f)); // some % shnanigins
 constexpr int chartBufferSpace = 150;
 
 struct data {
@@ -52,8 +52,8 @@ void exchange(size_t indexA, size_t indexB) {
 }
 
 void shuffleSequence() {
-    for (int i = 0; i != sequence.size(); i++) {
-        exchange(i, randint(0, sequence.size()));
+    for (size_t i = 0; i != sequence.size(); i++) {
+        exchange(i, randint(0, sequence.size()-1));
     }
 }
 
@@ -72,6 +72,7 @@ std::vector<std::wstring> splitlines(const std::wstring& s) {
     return result;
 }
 
+/*
 Surface multiLineText(std::wstring text) {
     std::vector<std::wstring> lines = splitlines(text);
 
@@ -91,19 +92,30 @@ Surface multiLineText(std::wstring text) {
 
     return texts;
 }
+*/
 
 int main() {
     newSequence(10);
     display d({width, height}, "Random Sequence");
+    const int fontSize = 32;
+    const vec2 Line1 = {10, startingHeight+5};
+    const vec2 Line2 = {10, startingHeight+5+fontSize};
+    const vec2 Line3 = {10, startingHeight+5+(fontSize*2)};
 
+    const Surface SpacePressed     = font::text(L"Press (Space) to shuffle sequence\n"  , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
+    const Surface ScrollingUp      = font::text(L"Scroll (Up) to add a number\n"        , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
+    const Surface ScrollingDown    = font::text(L"Scroll (Down) to remove a number\n"   , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
+    const Surface SpaceNotPressed  = font::text(L"Press [[Space]] to shuffle sequence\n", {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
+    const Surface NotScrollingUp   = font::text(L"Scroll [[Up]] to add a number\n"      , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
+    const Surface NotScrollingDown = font::text(L"Scroll [[Down]] to remove a number\n" , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
 
-    Surface text = multiLineText(
-        L"Press [Space] to shuffle sequence\n"
-        L"Scroll [Up] to add a number\n"
-        L"Scroll [Down] to remove a number\n"
-    );
+    bool scrollingUp = false;
+    bool scrollingDown = false;
+    bool spaceHeld = false;
 
     while (true) {
+        d.surface.fill(vec3(255, 255, 255));
+
         for (auto& e : events::get()) {
             if (e.type == events::eventTypes::quit) {
                 d.close();
@@ -111,30 +123,58 @@ int main() {
             }
             if (e.type == events::eventTypes::scroll_wheel_up) {
                 newSequence(sequence.size() + 1);
+                scrollingUp = true;
             }
             if (e.type == events::eventTypes::scroll_wheel_down) {
-                if (not sequence.size() <= 3) {
-                    newSequence(sequence.size() - 1);   
+                if (sequence.size() > 3) {
+                    newSequence(sequence.size() - 1); 
+                }
+                scrollingDown = true;
+            }
+            if (e.type == events::eventTypes::key_down) {
+                for (winhelp::events::key key : e.keys) {
+                    if (key == winhelp::events::key::Space) {
+                        spaceHeld = true;
+                    }
                 }
             }
             if (e.type == events::eventTypes::key_up) {
                 for (winhelp::events::key key : e.keys) {
                     if (key == winhelp::events::key::Space) {
                         shuffleSequence();
+                        spaceHeld = false;
                     }
                 }
             }
         }
 
-        d.surface.fill(vec3(255, 255, 255));
 
         for (int i = 0; i != sequence.size(); i++) {
             draw::rect(d.surface, {((float)i * thickness), startingHeight}, {thickness, sequence[i].number}, sequence[i].colour);
         }
 
-        d.surface.blit({0, startingHeight+5}, text);
+        // Line 1 (Space state)
+        if (spaceHeld)
+            d.surface.blit(Line1, SpacePressed);
+        else
+            d.surface.blit(Line1, SpaceNotPressed);
+
+        // Line 2 (Scroll up state)
+        if (scrollingUp)
+            d.surface.blit(Line2, ScrollingUp);
+        else
+            d.surface.blit(Line2, NotScrollingUp);
+
+        // Line 3 (Scroll down state)
+        if (scrollingDown)
+            d.surface.blit(Line3, ScrollingDown);
+        else
+            d.surface.blit(Line3, NotScrollingDown);
+
+        scrollingUp = false;
+        scrollingDown = false;
 
         d.flip();
-        tick(60);
+        winhelp::tick(60);
     }
 }
