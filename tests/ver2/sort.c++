@@ -251,6 +251,6 @@ int main() {
         }
 
         d.flip();
-        winhelp::tick();
+        winhelp::tick(60);
     }
 }
