@@ -732,9 +732,80 @@ namespace winhelp {
     }
 
     inline events::key map_key(WPARAM keyCode) {
-        if (keyCode >= 'A' && keyCode <= 'Z') return (events::key)(keyCode - 'A');
-        if (keyCode >= '0' && keyCode <= '9') return (events::key)((int)events::key::Num0 + (keyCode - '0'));
-        return events::key::Space;
+        switch (keyCode) {
+            // Letters
+            case 'A': return events::key::A;
+            case 'B': return events::key::B;
+            case 'C': return events::key::C;
+            case 'D': return events::key::D;
+            case 'E': return events::key::E;
+            case 'F': return events::key::F;
+            case 'G': return events::key::G;
+            case 'H': return events::key::H;
+            case 'I': return events::key::I;
+            case 'J': return events::key::J;
+            case 'K': return events::key::K;
+            case 'L': return events::key::L;
+            case 'M': return events::key::M;
+            case 'N': return events::key::N;
+            case 'O': return events::key::O;
+            case 'P': return events::key::P;
+            case 'Q': return events::key::Q;
+            case 'R': return events::key::R;
+            case 'S': return events::key::S;
+            case 'T': return events::key::T;
+            case 'U': return events::key::U;
+            case 'V': return events::key::V;
+            case 'W': return events::key::W;
+            case 'X': return events::key::X;
+            case 'Y': return events::key::Y;
+            case 'Z': return events::key::Z;
+
+            // Numbers (top row)
+            case '0': return events::key::Num0;
+            case '1': return events::key::Num1;
+            case '2': return events::key::Num2;
+            case '3': return events::key::Num3;
+            case '4': return events::key::Num4;
+            case '5': return events::key::Num5;
+            case '6': return events::key::Num6;
+            case '7': return events::key::Num7;
+            case '8': return events::key::Num8;
+            case '9': return events::key::Num9;
+
+            // Arrows
+            case VK_LEFT:  return events::key::Left;
+            case VK_RIGHT: return events::key::Right;
+            case VK_UP:    return events::key::Up;
+            case VK_DOWN:  return events::key::Down;
+
+            // Control keys
+            case VK_SPACE:    return events::key::Space;
+            case VK_RETURN:   return events::key::Enter;
+            case VK_ESCAPE:   return events::key::Escape;
+            case VK_TAB:      return events::key::Tab;
+            case VK_BACK:     return events::key::Backspace;
+            case VK_SHIFT:    return events::key::Shift;
+            case VK_CONTROL:  return events::key::Ctrl;
+            case VK_MENU:     return events::key::Alt;
+
+            // Function keys
+            case VK_F1:  return events::key::F1;
+            case VK_F2:  return events::key::F2;
+            case VK_F3:  return events::key::F3;
+            case VK_F4:  return events::key::F4;
+            case VK_F5:  return events::key::F5;
+            case VK_F6:  return events::key::F6;
+            case VK_F7:  return events::key::F7;
+            case VK_F8:  return events::key::F8;
+            case VK_F9:  return events::key::F9;
+            case VK_F10: return events::key::F10;
+            case VK_F11: return events::key::F11;
+            case VK_F12: return events::key::F12;
+
+            default:
+                return events::key::Escape; // or define a `None`
+        }
     }
 
     inline LRESULT CALLBACK wndproc(HWND handle, UINT message, WPARAM wparam, LPARAM lparam) {
