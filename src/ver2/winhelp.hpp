@@ -160,6 +160,7 @@ namespace winhelp {
     struct Surface {
         ivec2 size;
         std::vector<uint32_t> pixels;
+        bool hasAlpha = false;
 
         Surface() : size(0, 0) {}
 
@@ -186,24 +187,65 @@ namespace winhelp {
 
         void fill(vec4 colour) {
             uint32_t value = pack(colour);
-            std::fill(pixels.begin(), pixels.end(), value);
+            uint32_t* ptr = pixels.data();
+            uint32_t* end = ptr + pixels.size();
+            while (ptr < end)
+                *ptr++ = value;
         }
 
-        void blit(vec2 position, const Surface& source) {
-            for (int y = 0; y < source.size.y; y++) {
-                for (int x = 0; x < source.size.x; x++) {
+        void blit(vec2 position, const Surface& source, bool blend = true) {
 
-                    int dx = position.x + x;
-                    int dy = position.y + y;
+            int startX = std::max(0, (int)position.x);
+            int startY = std::max(0, (int)position.y);
 
-                    if (dx < 0 || dy < 0 ||
-                        dx >= size.x || dy >= size.y)
-                        continue;
+            int endX = std::min(size.x, (int)position.x + source.size.x);
+            int endY = std::min(size.y, (int)position.y + source.size.y);
 
-                    uint32_t src = source.pixels[(size_t)y * source.size.x + x];
-                    uint32_t& dst = pixels[(size_t)dy * size.x + dx];
+            if (startX >= endX || startY >= endY)
+                return;
 
-                    uint8_t srcA = (src >> 24) & 0xFF;
+            int srcOffsetX = startX - (int)position.x;
+            int srcOffsetY = startY - (int)position.y;
+
+            // i am speed
+            if (!blend || !source.hasAlpha) {
+
+                for (int y = startY; y < endY; ++y) {
+
+                    uint32_t* dstRow =
+                        &pixels[(size_t)y * size.x + startX];
+
+                    const uint32_t* srcRow =
+                        &source.pixels[
+                            (size_t)(y - startY + srcOffsetY) *
+                            source.size.x + srcOffsetX
+                        ];
+
+                    memcpy(dstRow, srcRow,
+                        (endX - startX) * sizeof(uint32_t));
+                }
+
+                return;
+            }
+
+            // i am not speed
+            for (int y = startY; y < endY; ++y) {
+
+                uint32_t* dstRow =
+                    &pixels[(size_t)y * size.x + startX];
+
+                const uint32_t* srcRow =
+                    &source.pixels[
+                        (size_t)(y - startY + srcOffsetY) *
+                        source.size.x + srcOffsetX
+                    ];
+
+                for (int x = startX; x < endX; ++x) {
+
+                    uint32_t src = *srcRow++;
+                    uint32_t& dst = *dstRow++;
+
+                    uint32_t srcA = src >> 24;
 
                     if (srcA == 255) {
                         dst = src;
@@ -213,26 +255,24 @@ namespace winhelp {
                     if (srcA == 0)
                         continue;
 
-                    uint8_t srcR = (src >> 16) & 0xFF;
-                    uint8_t srcG = (src >> 8)  & 0xFF;
-                    uint8_t srcB =  src        & 0xFF;
+                    uint32_t dstRB = dst & 0x00FF00FF;
+                    uint32_t dstG  = dst & 0x0000FF00;
 
-                    uint8_t dstR = (dst >> 16) & 0xFF;
-                    uint8_t dstG = (dst >> 8)  & 0xFF;
-                    uint8_t dstB =  dst        & 0xFF;
+                    uint32_t srcRB = src & 0x00FF00FF;
+                    uint32_t srcG  = src & 0x0000FF00;
 
-                    float alpha = srcA / 255.0f;
-                    float inv   = 1.0f - alpha;
+                    uint32_t invA = 255 - srcA;
 
-                    uint8_t outR = uint8_t(srcR * alpha + dstR * inv);
-                    uint8_t outG = uint8_t(srcG * alpha + dstG * inv);
-                    uint8_t outB = uint8_t(srcB * alpha + dstB * inv);
+                    dstRB = (dstRB * invA) >> 8;
+                    dstG  = (dstG  * invA) >> 8;
 
-                    dst =
-                        (0xFF << 24) |
-                        (outR << 16) |
-                        (outG << 8)  |
-                        outB;
+                    srcRB = (srcRB * srcA) >> 8;
+                    srcG  = (srcG  * srcA) >> 8;
+
+                    uint32_t outRB = (srcRB + dstRB) & 0x00FF00FF;
+                    uint32_t outG  = (srcG  + dstG ) & 0x0000FF00;
+
+                    dst = 0xFF000000 | outRB | outG;
                 }
             }
         }
@@ -400,7 +440,7 @@ namespace winhelp {
         }
 
         void flip() {
-            HDC dc = GetDC(handle);
+            static HDC dc = GetDC(handle);
 
             StretchDIBits(
                 dc,
@@ -416,7 +456,6 @@ namespace winhelp {
                 SRCCOPY
             );
 
-            ReleaseDC(handle, dc);
         }
 
         void close() {
@@ -425,25 +464,25 @@ namespace winhelp {
         }
     };
 
-    namespace font {
+    class Font {
+    private:
+        HFONT hfont;
+        HDC   hdc;
+        HBITMAP hdib;
+        void* bits;
+        int   size;
+        std::wstring name;
 
-        inline Surface text(
-            const std::wstring& content,
-            vec4 textColour,
-            vec4 bgColour,
-            int fontSize = 16,
-            const std::wstring& fontName = L"Consolas"
-        ) {
-            if (content.empty())
-                return Surface({0, 0});
-
-            HDC hdc = CreateCompatibleDC(nullptr);
+    public:
+        Font(int fontSize = 16, const std::wstring& fontName = L"Consolas") 
+        : hfont(nullptr), hdc(nullptr), hdib(nullptr), bits(nullptr), size(fontSize), name(fontName) {
+            hdc = CreateCompatibleDC(nullptr);
 
             SetMapMode(hdc, MM_TEXT);
             SetGraphicsMode(hdc, GM_COMPATIBLE);
 
-            HFONT font = CreateFontW(
-                -fontSize,
+            hfont = CreateFontW(
+                -size,
                 0, 0, 0,
                 FW_NORMAL,
                 FALSE, FALSE, FALSE,
@@ -452,127 +491,123 @@ namespace winhelp {
                 CLIP_DEFAULT_PRECIS,
                 ANTIALIASED_QUALITY,
                 DEFAULT_PITCH | FF_DONTCARE,
-                fontName.c_str()
+                name.c_str()
             );
 
-            HGDIOBJ oldFont = SelectObject(hdc, font);
+            SelectObject(hdc, hfont);
+        }
 
-            // Measure text
-            RECT rc = {0, 0, 0, 0};
-            DrawTextW(
-                hdc,
-                content.c_str(),
-                (int)content.length(),
-                &rc,
-                DT_CALCRECT | DT_LEFT | DT_TOP | DT_NOPREFIX
-            );
-
-            int width  = rc.right - rc.left;
-            int height = rc.bottom - rc.top;
-
-            if (width <= 0 || height <= 0) {
-                SelectObject(hdc, oldFont);
-                DeleteObject(font);
+        ~Font() {
+            if (hfont) {
+                DeleteObject(hfont);
+                hfont = nullptr;
+            }
+            if (hdib) {
+                DeleteObject(hdib);
+                hdib = nullptr;
+            }
+            if (hdc) {
                 DeleteDC(hdc);
-                return Surface({0, 0});
+                hdc = nullptr;
             }
+        }
 
-            Surface result({ (float)width, (float)height });
+        Surface render(const std::string& text, vec3 textColour, vec4 bgColour) {
+            SIZE textSize{};
+            GetTextExtentPoint32A(hdc, text.c_str(),
+                                (int)text.length(), &textSize);
 
-            BITMAPINFO bmi{};
-            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            bmi.bmiHeader.biWidth = width;
-            bmi.bmiHeader.biHeight = -height;
-            bmi.bmiHeader.biPlanes = 1;
-            bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = BI_RGB;
+            Surface result({ (float)textSize.cx,
+                            (float)textSize.cy });
 
-            void* bits = nullptr;
+            if (textSize.cx == 0 || textSize.cy == 0)
+                return result;
 
-            HBITMAP dib = CreateDIBSection(
-                hdc,
-                &bmi,
-                DIB_RGB_COLORS,
-                &bits,
-                nullptr,
-                0
-            );
+            // Create DIB
+            BITMAPINFOHEADER bih{};
+            bih.biSize = sizeof(BITMAPINFOHEADER);
+            bih.biWidth = textSize.cx;
+            bih.biHeight = -textSize.cy;
+            bih.biPlanes = 1;
+            bih.biBitCount = 32;
+            bih.biCompression = BI_RGB;
 
-            HGDIOBJ oldBitmap = SelectObject(hdc, dib);
+            if (hdib) DeleteObject(hdib);
+            hdib = CreateDIBSection(hdc, (BITMAPINFO*)&bih, DIB_RGB_COLORS, &bits, nullptr, 0);
+            SelectObject(hdc, hdib);
 
-            std::memset(bits, 0, width * height * 4);
+            // Clear DIB
+            RECT rect = { 0, 0, textSize.cx, textSize.cy };
+            HBRUSH clearBrush = (HBRUSH)GetStockObject(BLACK_BRUSH);
+            FillRect(hdc, &rect, clearBrush);
 
-            bool transparentBG = (bgColour.w == 0);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(255, 255, 255));
 
-            if (transparentBG) {
-                SetBkMode(hdc, OPAQUE);
-                SetBkColor(hdc, RGB(0,0,0));
-            } else {
-                SetBkMode(hdc, OPAQUE);
-                SetBkColor(hdc, RGB(
-                    (int)bgColour.x,
-                    (int)bgColour.y,
-                    (int)bgColour.z
-                ));
-            }
+            TextOutA(hdc, 0, 0,
+                    text.c_str(),
+                    (int)text.length());
 
-            SetTextColor(hdc, RGB(255,255,255)); // render white for alpha extraction
+            // Read pixels from DIB
+            uint32_t* src =
+                reinterpret_cast<uint32_t*>(bits);
 
-            RECT drawRc = {0, 0, width, height};
+            size_t total =
+                (size_t)textSize.cx *
+                (size_t)textSize.cy;
 
-            DrawTextW(
-                hdc,
-                content.c_str(),
-                (int)content.length(),
-                &drawRc,
-                DT_LEFT | DT_TOP | DT_NOPREFIX
-            );
-
-            uint32_t* src = (uint32_t*)bits;
-
-            for (size_t i = 0; i < result.pixels.size(); ++i) {
+            for (size_t i = 0; i < total; ++i) {
 
                 uint32_t pixel = src[i];
 
-                uint8_t r = (pixel >> 16) & 0xFF;
-                uint8_t g = (pixel >> 8)  & 0xFF;
-                uint8_t b =  pixel        & 0xFF;
+                // GDI text is grayscale in R channel
+                uint8_t coverage = (pixel >> 16) & 0xFF;
 
-                uint8_t glyphAlpha = r; // white text → grayscale
+                if (coverage) {
 
-                if (glyphAlpha > 0) {
+                    uint32_t a = coverage;
+
+                    uint32_t r =
+                        ((uint32_t)textColour.x * a) >> 8;
+                    uint32_t g =
+                        ((uint32_t)textColour.y * a) >> 8;
+                    uint32_t b =
+                        ((uint32_t)textColour.z * a) >> 8;
 
                     result.pixels[i] =
-                        (uint32_t(glyphAlpha) << 24) |
-                        (uint32_t(textColour.x) << 16) |
-                        (uint32_t(textColour.y) << 8)  |
-                        uint32_t(textColour.z);
+                        (a << 24) |
+                        (r << 16) |
+                        (g << 8)  |
+                        b;
 
                 } else {
 
-                    if (!transparentBG) {
+                    if (bgColour.w != 0) {
+
+                        uint32_t a = (uint32_t)bgColour.w;
+
+                        uint32_t r =
+                            ((uint32_t)bgColour.x * a) >> 8;
+                        uint32_t g =
+                            ((uint32_t)bgColour.y * a) >> 8;
+                        uint32_t b =
+                            ((uint32_t)bgColour.z * a) >> 8;
+
                         result.pixels[i] =
-                            (uint32_t(bgColour.w) << 24) |
-                            (uint32_t(bgColour.x) << 16) |
-                            (uint32_t(bgColour.y) << 8)  |
-                            uint32_t(bgColour.z);
+                            (a << 24) |
+                            (r << 16) |
+                            (g << 8)  |
+                            b;
+
                     } else {
                         result.pixels[i] = 0;
                     }
                 }
             }
-
-            SelectObject(hdc, oldBitmap);
-            SelectObject(hdc, oldFont);
-
-            DeleteObject(dib);
-            DeleteObject(font);
-            DeleteDC(hdc);
-
+            result.hasAlpha = true;
             return result;
         }
-
-    }
+    };
 
     namespace draw {
 
@@ -598,44 +633,39 @@ namespace winhelp {
 
             uint32_t& dst = surface.pixels[(size_t)y * surface.size.x + x];
 
-            uint8_t srcA = (src >> 24) & 0xFF;
+            uint32_t srcA = src >> 24;
+
             if (srcA == 255) {
                 dst = src;
                 return;
             }
-            if (srcA == 0) return;
 
-            uint8_t dstR = (dst >> 16) & 0xFF;
-            uint8_t dstG = (dst >> 8) & 0xFF;
-            uint8_t dstB = dst & 0xFF;
+            if (srcA == 0)
+                return;
 
-            uint8_t srcR = (src >> 16) & 0xFF;
-            uint8_t srcG = (src >> 8) & 0xFF;
-            uint8_t srcB = src & 0xFF;
+            uint32_t dstRB = dst & 0x00FF00FF;
+            uint32_t dstG  = dst & 0x0000FF00;
 
-            uint8_t invA = 255 - srcA;
+            uint32_t srcRB = src & 0x00FF00FF;
+            uint32_t srcG  = src & 0x0000FF00;
 
-            uint8_t r = (srcR * srcA + dstR * invA) / 255;
-            uint8_t g = (srcG * srcA + dstG * invA) / 255;
-            uint8_t b = (srcB * srcA + dstB * invA) / 255;
+            uint32_t invA = 255 - srcA;
 
-            dst = (0xFF << 24) | (r << 16) | (g << 8) | b;
+            // multiply packed channels
+            dstRB = (dstRB * invA) >> 8;
+            dstG  = (dstG  * invA) >> 8;
+
+            srcRB = (srcRB * srcA) >> 8;
+            srcG  = (srcG  * srcA) >> 8;
+
+            uint32_t outRB = (srcRB + dstRB) & 0x00FF00FF;
+            uint32_t outG  = (srcG  + dstG ) & 0x0000FF00;
+
+            dst = 0xFF000000 | outRB | outG;
         }
 
-        inline void blit(Surface& target, const Surface& source, vec2 position) {
-            for (int y = 0; y < source.size.y; ++y) {
-                for (int x = 0; x < source.size.x; ++x) {
-                    uint32_t srcPixel =
-                        source.pixels[(size_t)y * source.size.x + x];
-
-                    put_pixel_alpha(
-                        target,
-                        position.x + x,
-                        position.y + y,
-                        srcPixel
-                    );
-                }
-            }
+        inline void blit(Surface& target, const Surface& source, vec2 position, bool blend = true) {
+            target.blit(position, source, blend);
         }
 
         inline void line(Surface& surface, vec2 start, vec2 end,
@@ -653,17 +683,19 @@ namespace winhelp {
             int err = dx - dy;
 
             while (true) {
-
                 int half = (int)(thickness * 0.5f);
-                for (int ty = -half; ty <= half; ++ty)
-                    for (int tx = -half; tx <= half; ++tx)
-                        put_pixel(surface, x0 + tx, y0 + ty, colour);
+                for (int ty = -half; ty <= half; ++ty) {
+                    int py = y0 + ty;
+                    if (py < 0 || py >= surface.size.y) continue;
 
-                if (x0 == x1 && y0 == y1) break;
+                    for (int tx = -half; tx <= half; ++tx) {
+                        int px = x0 + tx;
+                        if (px < 0 || px >= surface.size.x) continue;
 
-                int e2 = err * 2;
-                if (e2 > -dy) { err -= dy; x0 += sx; }
-                if (e2 < dx)  { err += dx; y0 += sy; }
+                        surface.pixels[(size_t)py * surface.size.x + px] =
+                            pack_colour(colour);
+                    }
+                }
             }
         }
 
@@ -690,42 +722,76 @@ namespace winhelp {
                     { pos.x, pos.y + size.y },
                     pos, colour, thickness);
             } else {
-                int w = static_cast<int>(size.x);
-                int h = static_cast<int>(size.y);
-                int px = static_cast<int>(pos.x);
-                int py = static_cast<int>(pos.y);
+                int w = (int)size.x;
+                int h = (int)size.y;
+                int px = (int)pos.x;
+                int py = (int)pos.y;
 
-                for (int xinc = 0; xinc < w; xinc++) {
-                    for (int yinc = 0; yinc < h; yinc++) {
-                        put_pixel(surface, px + xinc, py - yinc, colour);
-                    }
+                uint32_t packed = pack_colour(colour);
+
+                for (int y = 0; y < h; ++y) {
+
+                    int drawY = py - y;
+                    if (drawY < 0 || drawY >= surface.size.y)
+                        continue;
+
+                    int startX = px;
+                    int endX   = px + w;
+
+                    if (endX < 0 || startX >= surface.size.x)
+                        continue;
+
+                    startX = std::max(startX, 0);
+                    endX   = std::min(endX, surface.size.x);
+
+                    uint32_t* row =
+                        &surface.pixels[(size_t)drawY * surface.size.x + startX];
+
+                    for (int x = startX; x < endX; ++x)
+                        *row++ = packed;
                 }
             }
-        }
+    }
 
-        inline void circle(Surface& surface, vec2 center,
-                        int radius, vec3 colour,
-                        bool filled = true) {
+    inline void circle(Surface& surface, vec2 center, int radius, vec3 colour, bool filled = true) {
+            int cx = (int)center.x;
+            int cy = (int)center.y;
+
+            int r2 = radius * radius;
 
             for (int y = -radius; y <= radius; ++y) {
-                for (int x = -radius; x <= radius; ++x) {
 
-                    int dist2 = x * x + y * y;
+                int yy = y * y;
+                int xSpan = (int)std::sqrt((float)(r2 - yy));
 
-                    if (filled) {
-                        if (dist2 <= radius * radius)
-                            put_pixel(surface,
-                                    center.x + x,
-                                    center.y + y,
-                                    colour);
-                    } else {
-                        if (dist2 <= radius * radius &&
-                            dist2 >= (radius - 1) * (radius - 1))
-                            put_pixel(surface,
-                                    center.x + x,
-                                    center.y + y,
-                                    colour);
-                    }
+                int drawY = cy + y;
+                if (drawY < 0 || drawY >= surface.size.y)
+                    continue;
+
+                if (filled) {
+
+                    int startX = cx - xSpan;
+                    int endX   = cx + xSpan;
+
+                    if (endX < 0 || startX >= surface.size.x)
+                        continue;
+
+                    startX = std::max(startX, 0);
+                    endX   = std::min(endX, surface.size.x - 1);
+
+                    uint32_t packed = pack_colour(colour);
+                    uint32_t* row = &surface.pixels[(size_t)drawY * surface.size.x + startX];
+
+                    for (int x = startX; x <= endX; ++x)
+                        *row++ = packed;
+
+                } else {
+
+                    int x1 = cx - xSpan;
+                    int x2 = cx + xSpan;
+
+                    put_pixel(surface, x1, drawY, colour);
+                    put_pixel(surface, x2, drawY, colour);
                 }
             }
         }
@@ -829,19 +895,19 @@ namespace winhelp {
                 queue().push_back({ eventTypes::mouse_down, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::left});
                 break;
             case WM_LBUTTONUP:
-                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::none});
+                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::left});
                 break;
             case WM_RBUTTONDOWN:
                 queue().push_back({ eventTypes::mouse_down, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::right});
                 break;
             case WM_RBUTTONUP:
-                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::none});
+                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::right});
                 break;
             case WM_MBUTTONDOWN:
                 queue().push_back({ eventTypes::mouse_down, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::middle});
                 break;
             case WM_MBUTTONUP:
-                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::none});
+                queue().push_back({ eventTypes::mouse_up, { (int)(short)LOWORD(lparam), (int)(short)HIWORD(lparam) }, {}, events::mouse::right});
                 break;
             case WM_MOUSEWHEEL:
                 queue().push_back({ GET_WHEEL_DELTA_WPARAM(wparam) > 0 ? eventTypes::scroll_wheel_up : eventTypes::scroll_wheel_down, { 0, (int)GET_WHEEL_DELTA_WPARAM(wparam) }, {}, events::mouse::none});

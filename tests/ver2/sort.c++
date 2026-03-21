@@ -151,14 +151,16 @@ int main() {
     const vec2 Line3 = {10, startingHeight+5+(fontSize*2)};
     const vec2 Line4 = {10, startingHeight+5+(fontSize*3)};
 
-    const Surface SpacePressed     = font::text(L"Press (Space) to shuffle sequence"  , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
-    const Surface ScrollingUp      = font::text(L"Scroll (Up) to add a number"        , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
-    const Surface ScrollingDown    = font::text(L"Scroll (Down) to remove a number"   , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
-    const Surface SpaceNotPressed  = font::text(L"Press [[Space]] to shuffle sequence", {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
-    const Surface NotScrollingUp   = font::text(L"Scroll [[Up]] to add a number"      , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
-    const Surface NotScrollingDown = font::text(L"Scroll [[Down]] to remove a number" , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
-    const Surface EnterPressed     = font::text(L"Press (Enter) to sort sequence"     , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
-    const Surface EnterNotPressed     = font::text(L"Press [[Enter]] to sort sequence"     , {0, 0, 0, 255}, {0, 0, 0, 0}, fontSize);
+    Font font(fontSize);
+
+    const Surface SpacePressed     = font.render("Press (Space) to shuffle sequence"  , {0, 0, 0}, {0, 0, 0, 0});
+    const Surface ScrollingUp      = font.render("Scroll (Up) to add a number"        , {0, 0, 0}, {0, 0, 0, 0});
+    const Surface ScrollingDown    = font.render("Scroll (Down) to remove a number"   , {0, 0, 0}, {0, 0, 0, 0});
+    const Surface SpaceNotPressed  = font.render("Press [[Space]] to shuffle sequence", {0, 0, 0}, {0, 0, 0, 0});
+    const Surface NotScrollingUp   = font.render("Scroll [[Up]] to add a number"      , {0, 0, 0}, {0, 0, 0, 0});
+    const Surface NotScrollingDown = font.render("Scroll [[Down]] to remove a number" , {0, 0, 0}, {0, 0, 0, 0});
+    const Surface EnterPressed     = font.render("Press (Enter) to sort sequence"     , {0, 0, 0}, {0, 0, 0, 0});
+    const Surface EnterNotPressed  = font.render("Press [[Enter]] to sort sequence"   , {0, 0, 0}, {0, 0, 0, 0});
 
     bool scrollingUp = false;
     bool scrollingDown = false;
@@ -250,7 +252,9 @@ int main() {
             lastState = state;
         }
 
+        d.surface.blit({10, 10}, font.render("FPS: " + std::to_string(fps), {0, 0, 0}, {0, 0, 0, 0}));
+        
         d.flip();
-        winhelp::tick(60);
+        winhelp::tick();
     }
 }
