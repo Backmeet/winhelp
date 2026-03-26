@@ -289,7 +289,7 @@ namespace winhelp {
             scroll_wheel_down,
             quit,
             minimized,
-            fullscreened
+            fullscreened,
         };
 
         enum class key {
@@ -308,7 +308,7 @@ namespace winhelp {
             eventTypes type;
             vec2 hit;
             std::vector<key> keys;
-            mouse click;
+            mouse click;  
         };
 
         inline std::vector<event>& queue() {
